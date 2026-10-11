@@ -55,6 +55,7 @@ import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.*
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.graphics.graphicsLayer
@@ -123,6 +124,7 @@ import com.google.android.material.color.utilities.Hct
 import com.google.android.material.color.utilities.MaterialDynamicColors
 import com.google.android.material.color.utilities.SchemeTonalSpot
 import com.kyant.backdrop.Backdrop
+import com.kyant.backdrop.backdrops.backdropBlur
 import com.kyant.backdrop.backdrops.layerBackdrop
 import com.kyant.backdrop.backdrops.rememberLayerBackdrop
 import com.kyant.backdrop.catalog.components.LiquidBottomTab
@@ -1466,6 +1468,25 @@ private fun DolphyUnifiedBottomBar(
         DolphyNavigationItem(stringResource(R.string.nav_settings), Icons.Default.Settings, settingsSelected, onSettingsClick),
     )
 
+    val liquidGlassNavOn = LocalLiquidGlassNav.current
+    val liquidBackdrop = LocalLiquidGlassBackdrop.current
+
+    if (liquidGlassNavOn && liquidBackdrop != null) {
+        LiquidFloatingBar(
+            backdrop = liquidBackdrop,
+            items = items,
+            fabIcon = fabIcon,
+            fabTitle = fabTitle,
+            onFabClick = onFabClick,
+            fabEnabled = fabEnabled,
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 12.dp, vertical = 16.dp)
+                .navigationBarsPadding(),
+        )
+        return
+    }
+
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -1544,6 +1565,132 @@ private fun DolphyUnifiedBottomBar(
                 ),
                 content = { contentRow() }
             )
+        }
+    }
+}
+
+/**
+ * Real iOS 26/27-style "Liquid Glass" floating tab bar: a single frosted
+ * pill (live blur of whatever is scrolling behind it via [backdropBlur]),
+ * a bright specular edge highlight, a soft floating shadow, and a tinted
+ * "bubble" that morphs under the selected icon - instead of a flat
+ * Material color fill.
+ */
+@Composable
+private fun LiquidFloatingBar(
+    backdrop: Backdrop,
+    items: List<DolphyNavigationItem>,
+    fabIcon: ImageVector,
+    fabTitle: String,
+    onFabClick: () -> Unit,
+    fabEnabled: Boolean,
+    modifier: Modifier = Modifier,
+) {
+    val shape = RoundedCornerShape(32.dp)
+    val accent = MaterialTheme.colorScheme.primary
+    val isDark = isSystemInDarkTheme()
+    val baseTint = if (isDark) Color.White.copy(alpha = 0.08f) else Color.White.copy(alpha = 0.32f)
+    val edgeHighlight = if (isDark) Color.White.copy(alpha = 0.5f) else Color.White.copy(alpha = 0.85f)
+    val edgeShadowColor = if (isDark) Color.Black.copy(alpha = 0.0f) else Color.Black.copy(alpha = 0.04f)
+
+    Row(
+        modifier = modifier
+            .widthIn(max = 480.dp)
+            .shadow(
+                elevation = 20.dp,
+                shape = shape,
+                ambientColor = Color.Black.copy(alpha = 0.30f),
+                spotColor = Color.Black.copy(alpha = 0.40f),
+            )
+            .clip(shape)
+            .backdropBlur(
+                backdrop = backdrop,
+                blurRadius = 34.dp,
+                tint = baseTint,
+            )
+            .border(
+                width = 1.dp,
+                brush = Brush.verticalGradient(
+                    colors = listOf(edgeHighlight, edgeShadowColor),
+                ),
+                shape = shape,
+            )
+            .padding(horizontal = 10.dp, vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.SpaceEvenly,
+    ) {
+        items.forEach { item ->
+            val bubbleShape = RoundedCornerShape(20.dp)
+            val bubbleAlpha by animateFloatAsState(
+                targetValue = if (item.selected) 1f else 0f,
+                animationSpec = spring(stiffness = Spring.StiffnessMediumLow),
+                label = "liquid_tab_bubble",
+            )
+            val contentColor = if (item.selected) accent else {
+                if (isDark) Color.White.copy(alpha = 0.78f) else Color.Black.copy(alpha = 0.60f)
+            }
+            Row(
+                modifier = Modifier
+                    .clip(bubbleShape)
+                    .background(accent.copy(alpha = 0.20f * bubbleAlpha), bubbleShape)
+                    .border(
+                        width = 1.dp,
+                        color = accent.copy(alpha = 0.45f * bubbleAlpha),
+                        shape = bubbleShape,
+                    )
+                    .clickable(onClick = item.onClick)
+                    .padding(horizontal = if (item.selected) 16.dp else 12.dp, vertical = 12.dp)
+                    .animateContentSize(animationSpec = spring(stiffness = Spring.StiffnessMediumLow)),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.Center,
+            ) {
+                Icon(
+                    imageVector = item.icon,
+                    contentDescription = item.title,
+                    tint = contentColor,
+                )
+                if (item.selected) {
+                    Spacer(Modifier.size(8.dp))
+                    Text(
+                        text = item.title,
+                        color = accent,
+                        style = MaterialTheme.typography.labelLarge,
+                        maxLines = 1,
+                        overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                    )
+                }
+            }
+        }
+
+        if (fabEnabled) {
+            Spacer(Modifier.width(2.dp))
+            Box(
+                modifier = Modifier
+                    .size(48.dp)
+                    .shadow(
+                        elevation = 10.dp,
+                        shape = CircleShape,
+                        ambientColor = accent.copy(alpha = 0.5f),
+                        spotColor = accent.copy(alpha = 0.6f),
+                    )
+                    .clip(CircleShape)
+                    .background(
+                        Brush.verticalGradient(
+                            colors = listOf(
+                                accent,
+                                accent.copy(alpha = 0.85f),
+                            )
+                        )
+                    )
+                    .clickable(onClick = onFabClick),
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(
+                    imageVector = fabIcon,
+                    contentDescription = fabTitle,
+                    tint = MaterialTheme.colorScheme.onPrimary,
+                )
+            }
         }
     }
 }
